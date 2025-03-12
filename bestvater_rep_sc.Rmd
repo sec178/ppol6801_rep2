@@ -1,0 +1,246 @@
+---
+title: "Replication Project 2 - Bestvater et. al. Repl. (Cohen)"
+author: "Sam Cohen"
+date: "2025-03-04"
+output: html_document
+---
+
+## Setup
+```{r setup, include=FALSE}
+# Installing libraries
+require(ggplot2)
+require(forcats)
+require(dplyr)
+require(stargazer)
+require(MLmetrics)
+require(irr)
+library(readr)
+library(tidyr)
+library(dplyr)
+library(tidyverse)
+library(broom)
+library(pacman)
+library(quanteda)
+library(quanteda.textstats)
+library(pdftools)
+library(tibble)
+library(sentimentr)
+library(topicmodels)
+library(tidytext)
+library(vader)
+
+
+pacman::p_load(readtext)
+pacman::p_load(quanteda.textplots, quanteda.textstats)
+pacman::p_load("quanteda.dictionaries", "quanteda.sentiment")
+pacman::p_load(tidyverse, quanteda, quanteda.corpora, quanteda.textstats, quanteda.textmodels, rjson, caret)
+
+
+# Setting seed for replicability
+set.seed(10) 
+```
+
+Reading in data
+```{r}
+# Raw data for women's march 
+wm_raw <- read.csv("Dataverse/data/FelmleeEtAl_corpus.csv", stringsAsFactors = F)
+
+# sampled 20k data for women's march
+wm_sample <- read.csv("Dataverse/data/WM_tweets_groundtruth.csv")
+
+# tweet scores by user
+wm_scores <- read.csv("Dataverse/data/WM_tweets_analysis_tweetscores.csv")
+
+```
+
+## Replication
+
+### Data and Corpus
+
+Generating corpus and tokens
+```{r}
+
+# Creating corpus
+wm_raw_corpus <- corpus(wm_raw, text_field = "tweets")
+
+# Preprocessing 
+tokens <- tokens(wm_raw_corpus, 
+                 split_hyphens = FALSE, # keep hyphenated words
+                 to_lower = TRUE, # convert all to lowercase 
+                 remove_punct = TRUE, # remove punctuation
+                 remove_numbers = TRUE, # remove digits
+                 remove_symbols = TRUE, # remove symbols
+                 remove_url = TRUE, # remove links
+                 valuetype = "regex") %>%  
+  tokens_tolower() %>% # to lowercase
+  tokens_remove(stopwords("en")) # remove stopwords, "@", 
+tokens <- tokens_wordstem(tokens) # stem
+
+# DFM
+dfm <- dfm(tokens)
+
+```
+
+### VADER 
+
+Generating original VADER sentiment scores
+```{r}
+# calculating VADER scores using package for tweets
+wm_raw$vader_rep <- sapply(wm_raw$tweets, function(txt) vader_df(txt)$compound)
+
+```
+
+```{r}
+# Exporting VADER scores so calculations wont need to be re-done
+write.csv(wm_raw, file="wm_raw_vader_rep.csv")
+
+# re-importing VADER scores
+wm_raw <- read.csv("wm_raw_vader_rep.csv")
+```
+
+
+```{r}
+# Comparing replication VADER scores to original
+
+wm_raw$vader_rep %>% summary() # VADER replication composite values
+wm_raw$sentiment_untargeted %>% summary() # VADER values from paper
+
+
+```
+
+### VADER Sent. Boxplots
+```{r}
+# Create the boxplot with own VADER scores
+ggplot(wm_raw %>% filter(place %in% c("washington","newyork","boston","losangeles","chicago","denver")), aes(x = reorder(place, vader_rep, FUN = mean), y = vader_rep)) +
+  geom_boxplot() +
+  labs(
+    title = "Boxplot of VADER Sent. Scores by City",
+    x = "City",
+    y = "VADER Sent. Score"
+  ) +
+  ylim(-4,4)+
+  theme_minimal()
+
+# Create the boxplot with original research VADER scores
+ggplot(wm_raw %>% filter(place %in% c("washington","newyork","boston","losangeles","chicago","denver")), aes(x = reorder(place, sentiment_untargeted, FUN = mean), y = sentiment_untargeted)) +
+  geom_boxplot() +
+  labs(
+    title = "Boxplot of VADER Sent. Scores by City",
+    x = "City",
+    y = "VADER Sent. Score"
+  ) +
+  ylim(-4,4)+
+  theme_minimal()
+```
+
+```{r}
+# Getting VADER scores for 20k sample
+wm_sample$vader_rep <- sapply(wm_sample$text, function(txt) vader_df(txt)$compound)
+
+# Exporting VADER scores so calculations wont need to be re-done
+write.csv(wm_sample, file="wm_sample_vader_rep.csv")
+
+# re-importing VADER scores
+wm_sample <- read.csv("wm_sample_vader_rep.csv")
+```
+
+```{r}
+# Comparing replication VADER scores for 20k sample to original
+
+wm_sample$vader_rep %>% summary()
+wm_sample$vader_scores %>% summary()
+
+```
+### Crosstabs of sentiment and stance
+
+```{r}
+# Cross tab: sentiment and stance in 20k sample
+xtabs(~ stance + sentiment, data = wm_sample)
+
+```
+### Logistic Regression repl.
+```{r}
+# ideology effect on sentiment 
+glm(vader_sentiment ~ ideology_score,  family=binomial, data = wm_scores) %>% tidy()
+
+# ideology effect on stance (bert) 
+glm(bert_stance ~ ideology_score, family=binomial, data = wm_scores) %>% tidy()
+
+# ideology effect on stance (hand-coded) 
+glm(stance ~ ideology_score, family=binomial,data = wm_scores)%>% tidy()
+
+
+```
+
+## Original Addition(s)
+
+### Naive Bayes Classifier
+
+Test-Train split
+```{r}
+# X train - Creating training data set (random 80% of tokens)
+sampled_indices <- sample(ndoc(dfm), size = round(ndoc(dfm) * 0.8))
+training_data <- dfm[sampled_indices, ]
+
+# X test
+test_data <- dfm[-sampled_indices, ]
+
+# y train - Creating training data lables (indexing for randomly sampled docs)
+train_labels <- wm_raw$bert_stance[sampled_indices]
+
+# y test
+test_labels <- wm_raw$bert_stance[-sampled_indices]
+
+```
+
+Training Naive Bayes model: stance ~ tweet
+```{r}
+# Training Naive Bayes model
+nb_wm <- textmodel_nb(training_data, train_labels, smooth = 1, prior = c("docfreq"))
+
+```
+
+Predicting values for test set
+```{r}
+# Make predictions on the new message
+predicted_labels <- predict(nb_wm, newdata = test_data) # pred
+true_labels <- test_labels # true
+
+```
+
+Confusion Matrix
+```{r}
+# Confusion matrix
+conf_matrix <- table(Predicted = predicted_labels, Actual = true_labels)
+conf_matrix
+```
+
+Metrics
+```{r}
+# Calculating metrics
+nb_acc <- sum(diag(conf_matrix)) / sum(conf_matrix)  # accuracy 
+nb_recall <- conf_matrix[2, 2] / sum(conf_matrix[2, ])  # recall
+nb_precision <- conf_matrix[2, 2] / sum(conf_matrix[, 2])  # precision 
+nb_f1 <- 2 * (nb_recall * nb_precision) / (nb_recall + nb_precision)  # F1 
+
+# Displaying metrics
+cat(
+  "Accuracy:", nb_acc, "\n",
+  "Recall:", nb_recall, "\n",
+  "Precision:", nb_precision, "\n",
+  "F1-score:", nb_f1
+)
+
+
+```
+
+
+```{r}
+
+```
+
+
+
+
+
+
