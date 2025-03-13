@@ -28,6 +28,7 @@ library(sentimentr)
 library(topicmodels)
 library(tidytext)
 library(vader)
+library(e1071)  # Load the package
 
 
 pacman::p_load(readtext)
@@ -35,8 +36,7 @@ pacman::p_load(quanteda.textplots, quanteda.textstats)
 pacman::p_load("quanteda.dictionaries", "quanteda.sentiment")
 pacman::p_load(tidyverse, quanteda, quanteda.corpora, quanteda.textstats, quanteda.textmodels, rjson, caret)
 
-
-# Setting seed for replicability
+# Setting seed for reproducability
 set.seed(10) 
 ```
 
@@ -93,7 +93,9 @@ wm_raw$vader_rep <- sapply(wm_raw$tweets, function(txt) vader_df(txt)$compound)
 ```{r}
 # Exporting VADER scores so calculations wont need to be re-done
 write.csv(wm_raw, file="wm_raw_vader_rep.csv")
+```
 
+```{r}
 # re-importing VADER scores
 wm_raw <- read.csv("wm_raw_vader_rep.csv")
 ```
@@ -139,16 +141,21 @@ wm_sample$vader_rep <- sapply(wm_sample$text, function(txt) vader_df(txt)$compou
 
 # Exporting VADER scores so calculations wont need to be re-done
 write.csv(wm_sample, file="wm_sample_vader_rep.csv")
+```
 
+```{r}
 # re-importing VADER scores
 wm_sample <- read.csv("wm_sample_vader_rep.csv")
 ```
 
 ```{r}
 # Comparing replication VADER scores for 20k sample to original
-
+print("Replicated VADER Scores:")
 wm_sample$vader_rep %>% summary()
+cat("\n")
+print("Original VADER Scores:")
 wm_sample$vader_scores %>% summary()
+
 
 ```
 ### Crosstabs of sentiment and stance
@@ -160,17 +167,58 @@ xtabs(~ stance + sentiment, data = wm_sample)
 ```
 ### Logistic Regression repl.
 ```{r}
+
 # ideology effect on sentiment 
-glm(vader_sentiment ~ ideology_score,  family=binomial, data = wm_scores) %>% tidy()
+lr_vader_ideol <- glm(vader_sentiment ~ ideology_score,  family=binomial, data = wm_scores)
 
 # ideology effect on stance (bert) 
-glm(bert_stance ~ ideology_score, family=binomial, data = wm_scores) %>% tidy()
+lr_bert_ideol <- glm(bert_stance ~ ideology_score, family=binomial, data = wm_scores)
 
 # ideology effect on stance (hand-coded) 
-glm(stance ~ ideology_score, family=binomial,data = wm_scores)%>% tidy()
+lr_human_ideol <- glm(stance ~ ideology_score, family=binomial,data = wm_scores)
+
+# Tidying with Stargazer
+stargazer(lr_vader_ideol, lr_bert_ideol, lr_human_ideol, 
+          type = "text", 
+          title = "Logistic Regression Replication Results",
+          #dep.var.labels = "Dependent Variable: vs",
+          covariate.labels = c("Ideology (lib-con)", "Constant"),
+          column.labels = c("VADER Sent.", "BERT Stance", "Human-coded Stance"),
+          digits = 3, 
+          omit.stat = c("LL", "ser"),
+          star.cutoffs = c(0.05, 0.01, 0.001))
+
+```
+
+### SVM
+```{r}
+# X train - Creating training data set (random 80% of tokens)
+sampled_indices <- sample(ndoc(dfm), size = round(ndoc(dfm) * 0.8))
+training_data <- dfm[sampled_indices, ]
+
+# X test
+test_data <- dfm[-sampled_indices, ]
+
+# y train - Creating training data lables (indexing for randomly sampled docs)
+train_labels <- wm_raw$bert_stance[sampled_indices]
+
+# y test
+test_labels <- wm_raw$bert_stance[-sampled_indices]
+
+
+
+# Train an SVM classifier
+svm_model <- svm(train_labels ~ ., data = convert(dfm_trim(training_data, min_docfreq = 5), to="data.frame"), 
+                 kernel = "radial",
+                 cost = 1,
+                 gamma = 0.5)
+
+# View model summary
+summary(svm_model)
 
 
 ```
+
 
 ## Original Addition(s)
 
