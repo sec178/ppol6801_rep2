@@ -190,35 +190,6 @@ stargazer(lr_vader_ideol, lr_bert_ideol, lr_human_ideol,
 
 ```
 
-### SVM
-```{r}
-# X train - Creating training data set (random 80% of tokens)
-sampled_indices <- sample(ndoc(dfm), size = round(ndoc(dfm) * 0.8))
-training_data <- dfm[sampled_indices, ]
-
-# X test
-test_data <- dfm[-sampled_indices, ]
-
-# y train - Creating training data lables (indexing for randomly sampled docs)
-train_labels <- wm_raw$bert_stance[sampled_indices]
-
-# y test
-test_labels <- wm_raw$bert_stance[-sampled_indices]
-
-
-
-# Train an SVM classifier
-svm_model <- svm(train_labels ~ ., data = convert(dfm_trim(training_data, min_docfreq = 5), to="data.frame"), 
-                 kernel = "radial",
-                 cost = 1,
-                 gamma = 0.5)
-
-# View model summary
-summary(svm_model)
-
-
-```
-
 
 ## Original Addition(s)
 
@@ -238,6 +209,7 @@ train_labels <- wm_raw$bert_stance[sampled_indices]
 
 # y test
 test_labels <- wm_raw$bert_stance[-sampled_indices]
+
 
 ```
 
