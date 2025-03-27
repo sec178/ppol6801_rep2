@@ -38,6 +38,8 @@ pacman::p_load(tidyverse, quanteda, quanteda.corpora, quanteda.textstats, quante
 
 # Setting seed for reproducability
 set.seed(10) 
+
+
 ```
 
 Reading in data
@@ -50,7 +52,6 @@ wm_sample <- read.csv("Dataverse/data/WM_tweets_groundtruth.csv")
 
 # tweet scores by user
 wm_scores <- read.csv("Dataverse/data/WM_tweets_analysis_tweetscores.csv")
-
 ```
 
 ## Replication
@@ -83,7 +84,7 @@ dfm <- dfm(tokens)
 
 ### VADER 
 
-Generating original VADER sentiment scores
+#### Generating VADER sentiment scores for entire corpus
 ```{r}
 # calculating VADER scores using package for tweets
 wm_raw$vader_rep <- sapply(wm_raw$tweets, function(txt) vader_df(txt)$compound)
@@ -109,8 +110,7 @@ wm_raw$sentiment_untargeted %>% summary() # VADER values from paper
 
 
 ```
-
-### VADER Sent. Boxplots
+#### VADER Sent. Boxplot: full sample
 ```{r}
 # Create the boxplot with own VADER scores
 ggplot(wm_raw %>% filter(place %in% c("washington","newyork","boston","losangeles","chicago","denver")), aes(x = reorder(place, vader_rep, FUN = mean), y = vader_rep)) +
@@ -134,8 +134,8 @@ ggplot(wm_raw %>% filter(place %in% c("washington","newyork","boston","losangele
   ylim(-4,4)+
   theme_minimal()
 ```
-
-```{r}
+#### Getting VADER scores for 20k sample
+```{r, eval=FALSE}
 # Getting VADER scores for 20k sample
 wm_sample$vader_rep <- sapply(wm_sample$text, function(txt) vader_df(txt)$compound)
 
@@ -148,6 +148,7 @@ write.csv(wm_sample, file="wm_sample_vader_rep.csv")
 wm_sample <- read.csv("wm_sample_vader_rep.csv")
 ```
 
+
 ```{r}
 # Comparing replication VADER scores for 20k sample to original
 print("Replicated VADER Scores:")
@@ -156,6 +157,23 @@ cat("\n")
 print("Original VADER Scores:")
 wm_sample$vader_scores %>% summary()
 
+```
+#### VADER Sent. Boxplot: 20k sample
+
+```{r}
+
+wm_sample_merge <- wm_sample %>% inner_join(wm_raw, by = c("text" = "tweets"))
+
+# Create the boxplot with original research VADER scoresof 20k sample
+ggplot(wm_sample_merge %>% filter(place %in% c("washington","newyork","boston","losangeles","chicago","denver")), aes(x = reorder(place, sentiment_untargeted, FUN = mean), y = sentiment_untargeted)) +
+  geom_boxplot() +
+  labs(
+    title = "Boxplot of VADER Sent. Scores by City",
+    x = "City",
+    y = "VADER Sent. Score"
+  ) +
+  ylim(-4,4)+
+  theme_minimal()
 
 ```
 ### Crosstabs of sentiment and stance
@@ -165,6 +183,7 @@ wm_sample$vader_scores %>% summary()
 xtabs(~ stance + sentiment, data = wm_sample)
 
 ```
+
 ### Logistic Regression repl.
 ```{r}
 
