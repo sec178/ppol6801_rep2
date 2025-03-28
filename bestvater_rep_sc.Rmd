@@ -175,6 +175,7 @@ ggplot(wm_sample_merge %>% filter(place %in% c("washington","newyork","boston","
   ylim(-4,4)+
   theme_minimal()
 
+
 ```
 ### Crosstabs of sentiment and stance
 
