@@ -1,0 +1,627 @@
+---
+title: "Replication Project 2 - Bestvater et. al. Repl. (Cohen)"
+author: "Sam Cohen"
+date: "2025-03-04"
+output: html_document
+---
+
+## Setup
+```{r setup, include=FALSE}
+# Installing libraries
+# Installing libraries
+require(ggplot2)
+require(forcats)
+require(dplyr)
+require(stargazer)
+require(MLmetrics)
+require(irr)
+library(readr)
+library(tidyr)
+library(tidyverse)
+library(broom)
+library(pacman)
+library(quanteda)
+library(quanteda.textstats)
+library(quanteda.textmodels)
+library(pdftools)
+library(tibble)
+library(sentimentr)
+library(topicmodels)
+library(tidytext)
+library(vader)
+library(e1071)  # Load the package
+library(tidymodels)
+library(wesanderson)
+library(glmnet)
+library(text2vec)
+library(conText)
+update.packages(ask = FALSE, checkBuilt = TRUE)
+
+# Then try installing tidymodels again
+install.packages("tidymodels")
+
+pacman::p_load(readtext)
+pacman::p_load(quanteda.textplots, quanteda.textstats)
+pacman::p_load("quanteda.dictionaries", "quanteda.sentiment")
+pacman::p_load(tidyverse, quanteda, quanteda.corpora, quanteda.textstats, quanteda.textmodels, rjson, caret)
+
+# Setting seed for reproducability
+set.seed(10) 
+
+```
+
+Reading in data
+```{r}
+# Raw data for women's march 
+wm_raw <- read.csv("Dataverse/data/FelmleeEtAl_corpus.csv", stringsAsFactors = F)
+
+# sampled 20k data for women's march
+wm_sample <- read.csv("Dataverse/data/WM_tweets_groundtruth.csv")
+
+# tweet scores by user
+wm_scores <- read.csv("Dataverse/data/WM_tweets_analysis_tweetscores.csv")
+```
+
+## Replication
+
+### Data and Corpus
+
+Generating corpus and tokens
+```{r}
+
+# Creating corpus
+wm_raw_corpus <- corpus(wm_raw, text_field = "tweets")
+
+# Preprocessing 
+tokens <- tokens(wm_raw_corpus, 
+                 split_hyphens = FALSE, # keep hyphenated words
+                 to_lower = TRUE, # convert all to lowercase 
+                 remove_punct = TRUE, # remove punctuation
+                 remove_numbers = TRUE, # remove digits
+                 remove_symbols = TRUE, # remove symbols
+                 remove_url = TRUE, # remove links
+                 valuetype = "regex") %>%  
+  tokens_tolower() %>% # to lowercase
+  tokens_remove(stopwords("en")) # remove stopwords, "@", 
+tokens <- tokens_wordstem(tokens) # stem
+
+# DFM
+dfm <- dfm(tokens)
+
+```
+
+### VADER 
+
+#### Generating VADER sentiment scores for entire corpus
+```{r}
+# calculating VADER scores using package for tweets
+wm_raw$vader_rep <- sapply(wm_raw$tweets, function(txt) vader_df(txt)$compound)
+
+```
+
+```{r}
+# Exporting VADER scores so calculations wont need to be re-done
+write.csv(wm_raw, file="wm_raw_vader_rep.csv")
+```
+
+```{r}
+# re-importing VADER scores
+wm_raw <- read.csv("wm_raw_vader_rep.csv")
+```
+
+
+```{r}
+# Comparing replication VADER scores to original
+
+wm_raw$vader_rep %>% summary() # VADER replication composite values
+wm_raw$sentiment_untargeted %>% summary() # VADER values from paper
+
+
+```
+#### VADER Sent. Boxplot: full sample
+```{r}
+# Create the boxplot with own VADER scores
+ggplot(wm_raw %>% filter(place %in% c("washington","newyork","boston","losangeles","chicago","denver")), aes(x = reorder(place, vader_rep, FUN = mean), y = vader_rep)) +
+  geom_boxplot() +
+  labs(
+    title = "Boxplot of VADER Sent. Scores by City",
+    x = "City",
+    y = "VADER Sent. Score"
+  ) +
+  ylim(-4,4)+
+  theme_minimal()
+
+# Create the boxplot with original research VADER scores
+ggplot(wm_raw %>% filter(place %in% c("washington","newyork","boston","losangeles","chicago","denver")), aes(x = reorder(place, sentiment_untargeted, FUN = mean), y = sentiment_untargeted)) +
+  geom_boxplot() +
+  labs(
+    title = "Boxplot of VADER Sent. Scores by City",
+    x = "City",
+    y = "VADER Sent. Score"
+  ) +
+  ylim(-4,4)+
+  theme_minimal()
+```
+#### Getting VADER scores for 20k sample
+```{r, eval=FALSE}
+# Getting VADER scores for 20k sample
+wm_sample$vader_rep <- sapply(wm_sample$text, function(txt) vader_df(txt)$compound)
+
+# Exporting VADER scores so calculations wont need to be re-done
+write.csv(wm_sample, file="wm_sample_vader_rep.csv")
+```
+
+```{r}
+# re-importing VADER scores
+wm_sample <- read.csv("wm_sample_vader_rep.csv")
+```
+
+
+```{r}
+# Comparing replication VADER scores for 20k sample to original
+print("Replicated VADER Scores:")
+wm_sample$vader_rep %>% summary()
+cat("\n")
+print("Original VADER Scores:")
+wm_sample$vader_scores %>% summary()
+
+```
+#### VADER Sent. Boxplot: 20k sample
+
+```{r}
+
+wm_sample_merge <- wm_sample %>% inner_join(wm_raw, by = c("text" = "tweets"))
+
+# Create the boxplot with original research VADER scoresof 20k sample
+ggplot(wm_sample_merge %>% filter(place %in% c("washington","newyork","boston","losangeles","chicago","denver")), aes(x = reorder(place, sentiment_untargeted, FUN = mean), y = sentiment_untargeted)) +
+  geom_boxplot() +
+  labs(
+    title = "Boxplot of VADER Sent. Scores by City",
+    x = "City",
+    y = "VADER Sent. Score"
+  ) +
+  ylim(-4,4)+
+  theme_minimal()
+
+
+```
+### Crosstabs of sentiment and stance
+
+```{r}
+# Cross tab: sentiment and stance in 20k sample
+xtabs(~ stance + sentiment, data = wm_sample)
+
+```
+
+### Logistic Regression repl.
+```{r}
+
+# ideology effect on sentiment 
+lr_vader_ideol <- glm(vader_sentiment ~ ideology_score,  family=binomial, data = wm_scores)
+
+# ideology effect on stance (bert) 
+lr_bert_ideol <- glm(bert_stance ~ ideology_score, family=binomial, data = wm_scores)
+
+# ideology effect on stance (hand-coded) 
+lr_human_ideol <- glm(stance ~ ideology_score, family=binomial,data = wm_scores)
+
+# Tidying with Stargazer
+stargazer(lr_vader_ideol, lr_bert_ideol, lr_human_ideol, 
+          type = "text", 
+          title = "Logistic Regression Replication Results",
+          #dep.var.labels = "Dependent Variable: vs",
+          covariate.labels = c("Ideology (lib-con)", "Constant"),
+          column.labels = c("VADER Sent.", "BERT Stance", "Human-coded Stance"),
+          digits = 3, 
+          omit.stat = c("LL", "ser"),
+          star.cutoffs = c(0.05, 0.01, 0.001))
+
+```
+
+
+## Original Addition(s)
+
+### Naive Bayes Classifier
+
+Test-Train split
+```{r}
+# X train - Creating training data set (random 80% of tokens)
+sampled_indices <- sample(ndoc(dfm), size = round(ndoc(dfm) * 0.8))
+training_data <- dfm[sampled_indices, ]
+
+# X test
+test_data <- dfm[-sampled_indices, ]
+
+# y train - Creating training data lables (indexing for randomly sampled docs)
+train_labels <- wm_raw$bert_stance[sampled_indices]
+
+# y test
+test_labels <- wm_raw$bert_stance[-sampled_indices]
+
+
+```
+
+Training Naive Bayes model: stance ~ tweet
+```{r}
+# Training Naive Bayes model
+nb_wm <- textmodel_nb(training_data, train_labels, smooth = 1, prior = c("docfreq"))
+
+```
+
+Predicting values for test set
+```{r}
+# Make predictions on the new message
+predicted_labels <- predict(nb_wm, newdata = test_data) # pred
+true_labels <- test_labels # true
+
+```
+
+Confusion Matrix
+```{r}
+# Confusion matrix
+conf_matrix <- table(Predicted = predicted_labels, Actual = true_labels)
+conf_matrix
+```
+
+Metrics
+```{r}
+# Calculating metrics
+nb_acc <- sum(diag(conf_matrix)) / sum(conf_matrix)  # accuracy 
+nb_recall <- conf_matrix[2, 2] / sum(conf_matrix[2, ])  # recall
+nb_precision <- conf_matrix[2, 2] / sum(conf_matrix[, 2])  # precision 
+nb_f1 <- 2 * (nb_recall * nb_precision) / (nb_recall + nb_precision)  # F1 
+
+# Displaying metrics
+cat(
+  "Accuracy:", nb_acc, "\n",
+  "Recall:", nb_recall, "\n",
+  "Precision:", nb_precision, "\n",
+  "F1-score:", nb_f1
+)
+
+
+```
+
+
+```{r}
+
+```
+
+
+
+
+### Lasso regression and key words for each group
+
+
+```{r}
+# ---- Step 4: Train a Lasso Model with Cross-Validation
+lasso <- cv.glmnet(
+  x = as(training_data, "dgCMatrix"), y = train_labels,  # Convert dfm to matrix
+  family = "binomial", alpha = 1, nfolds = 5,  # Logistic regression (binomial); Lasso (alpha = 1); 10-fold Cross-Validation
+  intercept = TRUE, type.measure = "class"
+)
+
+# ---- Step 6: Predict on Test Set 
+predicted_lasso <- predict(lasso, newx = test_data, type = "class")
+
+```
+
+```{r}
+# ---- Step 7: Evaluate Performance with Confusion Matrix ----
+conf_matrix_lasso <- table(Predicted = predicted_lasso, Actual = test_labels)
+conf_matrix_lasso
+
+# Calculating metrics
+lasso_acc <- sum(diag(conf_matrix_lasso)) / sum(conf_matrix_lasso)  # accuracy 
+lasso_recall <- conf_matrix_lasso[2, 2] / sum(conf_matrix_lasso[2, ])  # recall
+lasso_precision <- conf_matrix_lasso[2, 2] / sum(conf_matrix_lasso[, 2])  # precision 
+lasso_f1 <- 2 * (nb_recall * nb_precision) / (nb_recall + nb_precision)  # F1 
+
+# Displaying metrics
+cat(
+  "Accuracy:", lasso_acc, "\n",
+  "Recall:", lasso_recall, "\n",
+  "Precision:", lasso_precision, "\n",
+  "F1-score:", lasso_f1
+)
+```
+
+
+```{r}
+# get coefficients in the best model (with lowest lambda)
+coef_df <- coef(lasso, s = lasso$lambda.min) %>% 
+  as.matrix() %>% as.data.frame()
+
+colnames(coef_df) <- "coefficient"
+
+# create feature variable using row names
+coef_df$feature <- rownames(coef_df)
+
+# remove intercept
+coef_df <- coef_df[coef_df$feature != "(Intercept)", ]
+
+# Top words with positive coefficients
+head(coef_df[order(coef_df$coefficient, decreasing = TRUE), ], 10)
+
+# Top words with negative coefficients
+head(coef_df[order(coef_df$coefficient), ], 10)
+```
+
+## ALC Embedding
+
+```{r}
+pacman::p_load(data.table,
+               cowplot,
+               latex2exp)
+```
+
+```{r}
+# transformation matrix
+local_fasttext = readRDS("fasttext_transform_enwiki_50.rds")
+dim(local_fasttext)
+
+# pretrained embeddings
+not_all_na <- function(x) any(!is.na(x))
+fasttext <-  setDT(read_delim("fasttext_vectors_enwiki.vec",
+                              delim = " ",
+                              quote = "",
+                              skip = 1,
+                              col_names = F,
+                              col_types = cols())) %>%
+  dplyr::select(where(not_all_na)) # remove last column which is all NA
+
+word_vectors <-  as.matrix(fasttext, rownames = 1)
+colnames(word_vectors) <-  NULL
+rm(fasttext)
+```
+
+
+```{r}
+# Creating corpus
+wm_sample <- wm_sample %>%
+  mutate(attitude = if_else(stance == 1, "supporter", "opponent"))
+
+corp <- corpus(wm_sample, text_field = "text")
+```
+
+
+```{r}
+# remove short speeches
+corpus <- corp %>% 
+  corpus_trim(what = "documents",
+              min_ntoken = 5) 
+
+# some pre-processing
+toks <- tokens(corpus, 
+               remove_punct=T, 
+               remove_symbols=T,
+               remove_numbers=T,
+               remove_url=T) %>% 
+  tokens_tolower()
+
+# without stops (also works with them!)
+toks_nostop <- tokens_select(toks, pattern = stopwords("en"), selection = "remove")
+
+# only use features that appear at least 10 times in the corpus
+feats <- dfm(toks_nostop, tolower=T, verbose = FALSE) %>%
+  dfm_trim(min_termfreq = 10) %>% featnames()
+
+toks_nostop <- tokens_select(toks_nostop, feats, padding = TRUE)
+```
+
+## Check overall performance of ALC resources
+
+```{r}
+wm_toks <- tokens_context(x = toks_nostop, pattern = "*march*", window = 5L)
+wm_dfm <- dfm(wm_toks)
+# create document-embedding matrix using our locally trained GloVe embeddings and transformation matrix
+wm_dem_local <- dem(x = wm_dfm, pre_trained = word_vectors, 
+                       transform = TRUE, transform_matrix = local_fasttext, 
+                       verbose = TRUE)
+
+# take the column average to get a single "corpus-wide" embedding
+wm_wv_local <- colMeans(wm_dem_local)
+
+# find nearest neighbors for overall immigration embedding
+find_nns(wm_wv_local, pre_trained = word_vectors, 
+         N = 10, candidates = wm_dem_local@features)
+```
+
+```{r}
+# token object around target words
+target_toks <- tokens_context(x = toks_nostop, pattern = "*march*", window = 5L)
+feats <- featnames(dfm(target_toks)) # for restrictions of candidates
+
+# nearest neighbors: features with the highest cosine-similarity with each group embedding
+
+# ---------------------------------
+# by government vs. opposition 
+target_nns <- get_nns(x = target_toks, N = 10,
+                      groups = docvars(target_toks, 'attitude'),
+                      candidates = feats, # restrict to candidates in context window
+                      pre_trained = word_vectors,
+                      transform = TRUE,
+                      transform_matrix = local_fasttext,
+                      bootstrap = F) %>% 
+  lapply(., "[[",2) %>% 
+  do.call(rbind, .) %>% 
+  as.data.frame()
+target_nns[, 1:10]
+```
+
+```{r}
+plotfun <- function(n){
+  temp <- tokens_subset(target_toks)
+  feats <- featnames(dfm(target_toks))
+  set.seed(111)
+  target_nns_ratio <- get_nns_ratio(x = temp,
+                                    N = n,
+                                    groups = docvars(temp, 'attitude'),
+                                    numerator = "supporter",
+                                    candidates = feats,
+                                    pre_trained = word_vectors,
+                                    transform = TRUE,
+                                    transform_matrix = local_fasttext,
+                                    bootstrap = T,
+                                    num_bootstraps = 100,
+                                    permute = TRUE,
+                                    num_permutations = 100,
+                                    verbose = T)
+  
+  return(target_nns_ratio)
+}
+```
+
+
+```{r}
+nb_by_group <- plotfun(n = 10)
+nb_by_group
+plot_nns_ratio(x = nb_by_group, alpha = 0.05, horizontal = F)
+```
+
+
+```{r}
+# token object around target words
+target_toks <- tokens_context(x = toks_nostop, pattern = "*trump*", window = 5L)
+feats <- featnames(dfm(target_toks)) # for restrictions of candidates
+
+# nearest neighbors: features with the highest cosine-similarity with each group embedding
+
+# ---------------------------------
+# by government vs. opposition 
+target_nns <- get_nns(x = target_toks, N = 10,
+                      groups = docvars(target_toks, 'attitude'),
+                      candidates = feats, # restrict to candidates in context window
+                      pre_trained = word_vectors,
+                      transform = TRUE,
+                      transform_matrix = local_fasttext,
+                      bootstrap = F) %>% 
+  lapply(., "[[",2) %>% 
+  do.call(rbind, .) %>% 
+  as.data.frame()
+target_nns[, 1:10]
+```
+
+
+```{r}
+nb_by_group <- plotfun(n = 10)
+nb_by_group
+plot_nns_ratio(x = nb_by_group, alpha = 0.05, horizontal = F)
+```
+
+train local A
+
+```{r}
+toks_fcm <- fcm(toks_nostop, context = "window", window = 5, count = "frequency")
+localA <- conText::compute_transform(x = toks_fcm, pre_trained = word_vectors, weighting = 'log')
+```
+
+train local GloVe
+
+```{r}
+# estimate glove model using text2vec
+glovelocal <- GlobalVectors$new(rank = 300, 
+                                x_max = 100,
+                                learning_rate = 0.05)
+
+wv_main <- glovelocal$fit_transform(toks_fcm, n_iter = 30,
+                                    convergence_tol = 1e-3, 
+                                    n_threads = parallel::detectCores()) # set to 'parallel::detectCores()' to use all available cores
+
+wv_context <- glovelocal$components
+local_glove <- wv_main + t(wv_context) # word vectors
+saveRDS(local_glove, "localglove_nostops_italianparliament.rds")
+```
+
+```{r}
+wm_toks <- tokens_context(x = toks_nostop, pattern = "*march*", window = 5L)
+wm_dfm <- dfm(wm_toks)
+# create document-embedding matrix using our locally trained GloVe embeddings and transformation matrix
+wm_dem_local <- dem(x = wm_dfm, pre_trained = local_glove, 
+                       transform = TRUE, transform_matrix = localA, 
+                       verbose = TRUE)
+
+# take the column average to get a single "corpus-wide" embedding
+wm_wv_local <- colMeans(wm_dem_local)
+
+# find nearest neighbors for overall immigration embedding
+find_nns(wm_wv_local, pre_trained = local_glove, 
+         N = 10, candidates = wm_dem_local@features)
+```
+
+```{r}
+# token object around target words
+target_toks <- tokens_context(x = toks_nostop, pattern = "*march*", window = 5L)
+feats <- featnames(dfm(target_toks)) # for restrictions of candidates
+
+# nearest neighbors: features with the highest cosine-similarity with each group embedding
+
+# ---------------------------------
+# by government vs. opposition 
+target_nns <- get_nns(x = target_toks, N = 10,
+                      groups = docvars(target_toks, 'attitude'),
+                      candidates = feats, # restrict to candidates in context window
+                      pre_trained = local_glove,
+                      transform = TRUE,
+                      transform_matrix = localA,
+                      bootstrap = F) %>% 
+  lapply(., "[[",2) %>% 
+  do.call(rbind, .) %>% 
+  as.data.frame()
+target_nns[, 1:10]
+```
+
+## Word Scaling
+
+```{r}
+toks_nostop_dfm <- toks_nostop %>% dfm()
+```
+
+```{r}
+# apply Wordscores algorithm to document-feature matrix
+tmod_ws <- textmodel_wordscores(toks_nostop_dfm, y = toks_nostop$stance, smooth = 0.01)
+```
+
+```{r}
+# capture words as a tibble
+wordscores_df <- tmod_ws$wordscores %>% 
+  as_tibble() %>% 
+  mutate(words=names(tmod_ws$wordscores))
+```
+
+```{r}
+# right words
+words_r  <- wordscores_df %>%
+  arrange(desc(value)) %>%
+  slice(1:10)
+
+
+# left_words
+words_l  <- wordscores_df %>%
+  arrange(value) %>%
+  slice(1:10)
+
+# bind and rescale
+# Rescale scores to be between -1 and 1
+min_score <- min(wordscores_df$value)
+max_score <- max(wordscores_df$value)
+wordscores_resscaled = bind_rows(words_r, words_l) %>%
+  arrange(value) %>%
+  mutate(rescaled_scores = -1 + (value - min_score) * (2 / (max_score - min_score)), 
+         fill_=ifelse(rescaled_scores > 0, "Right", "Left"), 
+         words=fct_rev(fct_inorder(words)))
+```
+
+```{r}
+# plot for the words
+ggplot(wordscores_resscaled, 
+       aes(x=words, y=rescaled_scores, label = words, fill = fill_)) +
+  geom_col(show.legend = FALSE, alpha=.8) +
+  geom_text(size = 4) +
+  coord_flip() +
+  scale_y_continuous() +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.y  = element_blank()) +
+  scale_fill_manual(values = wes_palette("BottleRocket2"))
+```
+
