@@ -35,10 +35,6 @@ library(wesanderson)
 library(glmnet)
 library(text2vec)
 library(conText)
-update.packages(ask = FALSE, checkBuilt = TRUE)
-
-# Then try installing tidymodels again
-install.packages("tidymodels")
 
 pacman::p_load(readtext)
 pacman::p_load(quanteda.textplots, quanteda.textstats)
@@ -101,7 +97,7 @@ wm_raw$vader_rep <- sapply(wm_raw$tweets, function(txt) vader_df(txt)$compound)
 
 ```{r}
 # Exporting VADER scores so calculations wont need to be re-done
-write.csv(wm_raw, file="wm_raw_vader_rep.csv")
+#write.csv(wm_raw, file="wm_raw_vader_rep.csv")
 ```
 
 ```{r}
@@ -148,7 +144,7 @@ ggplot(wm_raw %>% filter(place %in% c("washington","newyork","boston","losangele
 wm_sample$vader_rep <- sapply(wm_sample$text, function(txt) vader_df(txt)$compound)
 
 # Exporting VADER scores so calculations wont need to be re-done
-write.csv(wm_sample, file="wm_sample_vader_rep.csv")
+#write.csv(wm_sample, file="wm_sample_vader_rep.csv")
 ```
 
 ```{r}
@@ -221,7 +217,9 @@ stargazer(lr_vader_ideol, lr_bert_ideol, lr_human_ideol,
 
 ## Original Addition(s)
 
-### Naive Bayes Classifier
+### Supervised Machine Learning
+
+#### Naive Bayes Classifier
 
 Test-Train split
 ```{r}
@@ -283,14 +281,9 @@ cat(
 ```
 
 
-```{r}
-
-```
 
 
-
-
-### Lasso regression and key words for each group
+#### Lasso regression and key words for each group
 
 
 ```{r}
@@ -347,7 +340,7 @@ head(coef_df[order(coef_df$coefficient, decreasing = TRUE), ], 10)
 head(coef_df[order(coef_df$coefficient), ], 10)
 ```
 
-## ALC Embedding
+### ALC Embedding
 
 ```{r}
 pacman::p_load(data.table,
@@ -409,7 +402,7 @@ feats <- dfm(toks_nostop, tolower=T, verbose = FALSE) %>%
 toks_nostop <- tokens_select(toks_nostop, feats, padding = TRUE)
 ```
 
-## Check overall performance of ALC resources
+#### Check overall performance of ALC resources
 
 ```{r}
 wm_toks <- tokens_context(x = toks_nostop, pattern = "*march*", window = 5L)
@@ -571,7 +564,7 @@ target_nns <- get_nns(x = target_toks, N = 10,
 target_nns[, 1:10]
 ```
 
-## Word Scaling
+### Word Scaling
 
 ```{r}
 toks_nostop_dfm <- toks_nostop %>% dfm()
