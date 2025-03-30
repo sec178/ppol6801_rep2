@@ -1,0 +1,2 @@
+glove_transform_enwiki_50.rds filter=lfs diff=lfs merge=lfs -text
+glove_vectors_enwiki.txt filter=lfs diff=lfs merge=lfs -text
