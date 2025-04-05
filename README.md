@@ -1,7 +1,7 @@
 # Replication Project #2: Text as Data
 ## Sam Cohen and Xiangming Zeng
 
-Here is our repository for the second replication project for Text as Data. 
+Here is our repository for the second replication project for Text as Data. In this exercise, we attempted to replicate findings from and add original insights to the research paper “Sentiment is Not Stance: Target-Aware Opinion Classification for Political Text Analysis” by Bestvater and Monroe. The structure and makeup of this repository can be found below: 
 - **Dataverse**: Contains all files for this project found on the Harvard Dataverse website. This includes data, scripts, tables, and more
 - **Original Paper**: Contains a PDF of the article we will be replicating results from-- "Replication Data for: Sentiment is Not Stance: Target-Aware Opinion Classification for Political Text Analysis" by Bestvater & Monroe
 - **Slides**: Contains the slide deck from our presentation on this replication exercise.
