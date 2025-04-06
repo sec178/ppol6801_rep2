@@ -7,7 +7,7 @@ Here is our repository for the second replication project for Text as Data. In t
 - **Dataverse**: Contains all files for this project found on the Harvard Dataverse website. This includes data, scripts, tables, and more
 - **Original Paper**: Contains a PDF of the article we will be replicating results from-- "Replication Data for: Sentiment is Not Stance: Target-Aware Opinion Classification for Political Text Analysis" by Bestvater & Monroe
 - **Slides**: Contains the slide deck from our presentation on this replication exercise.
-- **Report**: Contains our report on our replicatino, extension, and overall findings.
+- **Report**: Contains our report on our replication, extension, and overall findings.
 
 *Original additions*
 - **Our Code**: The file that contains our cleaning, analysis, and modeling is the *bestvater_rep_sc&xz.Rmd* file
