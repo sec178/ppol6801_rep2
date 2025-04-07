@@ -10,7 +10,7 @@ Here is our repository for the second replication project for Text as Data. In t
 - **Report**: Contains our report on our replication, extension, and overall findings.
 
 *Original additions*
-- **Our Code**: The file that contains our cleaning, analysis, and modeling is the *bestvater_rep_sc&xz.Rmd* file
+- **Our Code**: The file that contains our cleaning, analysis, and modeling is the *bestvater_rep_sc-xz.Rmd* file. A rendered version of the file is also included.
 - **Our Data**: The *wm_raw_vader_rep.csv* and *wm_sample_vader_rep.csv* are the cleaned data output of our RMD file. They are the entire data set with recreated VADER scores and the sample data with recreated VADER scores, respectively.
 
 *Please note: our code should run without a change in directory. However, in order for the Word Embeddings to render, please download the two files in this folder to the root directory--  https://drive.google.com/drive/folders/1GZ4hKD-dMlk0nxval-pAG4NB0WAberKF
