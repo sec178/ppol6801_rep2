@@ -89,15 +89,15 @@ dfm <- dfm(tokens)
 ### VADER 
 
 #### Generating VADER sentiment scores for entire corpus
-```{r}
+```{r, eval=FALSE}
 # calculating VADER scores using package for tweets
 wm_raw$vader_rep <- sapply(wm_raw$tweets, function(txt) vader_df(txt)$compound)
 
 ```
 
-```{r}
+```{r, eval=FALSE}
 # Exporting VADER scores so calculations wont need to be re-done
-#write.csv(wm_raw, file="wm_raw_vader_rep.csv")
+write.csv(wm_raw, file="wm_raw_vader_rep.csv")
 ```
 
 ```{r}
@@ -215,34 +215,37 @@ stargazer(lr_vader_ideol, lr_bert_ideol, lr_human_ideol,
 ```
 
 
-## Original Addition(s)
+## Extentions
 
 ### Supervised Machine Learning
+
+```{r}
+# filter out low-frequency features
+dfm_filtered <- dfm %>% dfm_trim(min_termfreq = 20, min_docfreq = 10)
+```
 
 #### Naive Bayes Classifier
 
 Test-Train split
 ```{r}
 # X train - Creating training data set (random 80% of tokens)
-sampled_indices <- sample(ndoc(dfm), size = round(ndoc(dfm) * 0.8))
-training_data <- dfm[sampled_indices, ]
+sampled_indices <- sample(ndoc(dfm_filtered), size = round(ndoc(dfm_filtered) * 0.8))
+train_data <- dfm_filtered[sampled_indices, ]
 
 # X test
-test_data <- dfm[-sampled_indices, ]
+test_data <- dfm_filtered[-sampled_indices, ]
 
 # y train - Creating training data lables (indexing for randomly sampled docs)
 train_labels <- wm_raw$bert_stance[sampled_indices]
 
 # y test
 test_labels <- wm_raw$bert_stance[-sampled_indices]
-
-
 ```
 
 Training Naive Bayes model: stance ~ tweet
 ```{r}
 # Training Naive Bayes model
-nb_wm <- textmodel_nb(training_data, train_labels, smooth = 1, prior = c("docfreq"))
+nb_wm <- textmodel_nb(train_data, train_labels, smooth = 1, prior = c("docfreq"))
 
 ```
 
@@ -280,30 +283,40 @@ cat(
 
 ```
 
+```{r}
+# visualize the confusion matrix
+cm_table <- as.data.frame(conf_matrix)
+colnames(cm_table) <- c("Prediction", "Reference", "Freq")
 
+ggplot(cm_table, aes(x = Reference, y = fct_rev(Prediction), fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 5) +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(title = "Confusion Matrix (NB)", x = "Actual", y = "Predicted") +
+  theme_minimal()
+```
 
-
-#### Lasso regression and key words for each group
-
+#### Lasso regression and the most predictive features for each stance group
 
 ```{r}
-# ---- Step 4: Train a Lasso Model with Cross-Validation
+# Train a Lasso Model with Cross-Validation
 lasso <- cv.glmnet(
-  x = as(training_data, "dgCMatrix"), y = train_labels,  # Convert dfm to matrix
-  family = "binomial", alpha = 1, nfolds = 5,  # Logistic regression (binomial); Lasso (alpha = 1); 10-fold Cross-Validation
+  x = as(train_data, "dgCMatrix"), y = train_labels,  # Convert dfm to matrix
+  family = "binomial", alpha = 1, nfolds = 5,  # Logistic regression (binomial); Lasso (alpha = 1); 5-fold Cross-Validation
   intercept = TRUE, type.measure = "class"
 )
 
-# ---- Step 6: Predict on Test Set 
+# Predict on Test Set 
 predicted_lasso <- predict(lasso, newx = test_data, type = "class")
-
 ```
 
 ```{r}
-# ---- Step 7: Evaluate Performance with Confusion Matrix ----
+# Evaluate Performance with Confusion Matrix
 conf_matrix_lasso <- table(Predicted = predicted_lasso, Actual = test_labels)
 conf_matrix_lasso
+```
 
+```{r}
 # Calculating metrics
 lasso_acc <- sum(diag(conf_matrix_lasso)) / sum(conf_matrix_lasso)  # accuracy 
 lasso_recall <- conf_matrix_lasso[2, 2] / sum(conf_matrix_lasso[2, ])  # recall
@@ -319,6 +332,20 @@ cat(
 )
 ```
 
+```{r}
+# visualize the confusion matrix
+cm_table_lasso <- as.data.frame(conf_matrix_lasso)
+colnames(cm_table_lasso) <- c("Prediction", "Reference", "Freq")
+
+ggplot(cm_table_lasso, aes(x = Reference, y = fct_rev(Prediction), fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 5) +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(title = "Confusion Matrix (LASSO)", x = "Actual", y = "Predicted") +
+  theme_minimal()
+```
+
+After training the lasso regression model, we can identify the most predictive features for each stance by filtering those with the largest positive and negative coefficients.
 
 ```{r}
 # get coefficients in the best model (with lowest lambda)
@@ -340,7 +367,7 @@ head(coef_df[order(coef_df$coefficient, decreasing = TRUE), ], 10)
 head(coef_df[order(coef_df$coefficient), ], 10)
 ```
 
-### ALC Embedding
+### ALC Embeddings
 
 ```{r}
 pacman::p_load(data.table,
@@ -363,23 +390,24 @@ fasttext <-  setDT(read_delim("fasttext_vectors_enwiki.vec",
                               col_types = cols())) %>%
   dplyr::select(where(not_all_na)) # remove last column which is all NA
 
+# get word vector(embedding) matrix
 word_vectors <-  as.matrix(fasttext, rownames = 1)
 colnames(word_vectors) <-  NULL
 rm(fasttext)
 ```
 
+#### Data Preprocessing
 
 ```{r}
-# Creating corpus
+# creating corpus with group labels
 wm_sample <- wm_sample %>%
   mutate(attitude = if_else(stance == 1, "supporter", "opponent"))
 
 corp <- corpus(wm_sample, text_field = "text")
 ```
 
-
 ```{r}
-# remove short speeches
+# remove short tweets
 corpus <- corp %>% 
   corpus_trim(what = "documents",
               min_ntoken = 5) 
@@ -392,7 +420,7 @@ toks <- tokens(corpus,
                remove_url=T) %>% 
   tokens_tolower()
 
-# without stops (also works with them!)
+# without stops
 toks_nostop <- tokens_select(toks, pattern = stopwords("en"), selection = "remove")
 
 # only use features that appear at least 10 times in the corpus
@@ -402,12 +430,12 @@ feats <- dfm(toks_nostop, tolower=T, verbose = FALSE) %>%
 toks_nostop <- tokens_select(toks_nostop, feats, padding = TRUE)
 ```
 
-#### Check overall performance of ALC resources
+#### The Nearest Neighbors for March-Related Terms
 
 ```{r}
 wm_toks <- tokens_context(x = toks_nostop, pattern = "*march*", window = 5L)
 wm_dfm <- dfm(wm_toks)
-# create document-embedding matrix using our locally trained GloVe embeddings and transformation matrix
+# create document-embedding matrix using pre-trained fasttext embeddings and transformation matrix
 wm_dem_local <- dem(x = wm_dfm, pre_trained = word_vectors, 
                        transform = TRUE, transform_matrix = local_fasttext, 
                        verbose = TRUE)
@@ -415,7 +443,7 @@ wm_dem_local <- dem(x = wm_dfm, pre_trained = word_vectors,
 # take the column average to get a single "corpus-wide" embedding
 wm_wv_local <- colMeans(wm_dem_local)
 
-# find nearest neighbors for overall immigration embedding
+# find nearest neighbors for overall march embedding
 find_nns(wm_wv_local, pre_trained = word_vectors, 
          N = 10, candidates = wm_dem_local@features)
 ```
@@ -442,7 +470,10 @@ target_nns <- get_nns(x = target_toks, N = 10,
 target_nns[, 1:10]
 ```
 
+Visualizing the cosine similarity ratio of the nearest neighbors.
+
 ```{r}
+# get cosine similarity ratios
 plotfun <- function(n){
   temp <- tokens_subset(target_toks)
   feats <- featnames(dfm(target_toks))
@@ -465,13 +496,14 @@ plotfun <- function(n){
 }
 ```
 
-
 ```{r}
+# visualizing cosine similarity ratios
 nb_by_group <- plotfun(n = 10)
 nb_by_group
 plot_nns_ratio(x = nb_by_group, alpha = 0.05, horizontal = F)
 ```
 
+#### The Nearest Neighbors for Trump-Related Terms
 
 ```{r}
 # token object around target words
@@ -497,10 +529,13 @@ target_nns[, 1:10]
 
 
 ```{r}
+# visualizing cosine similarity ratios
 nb_by_group <- plotfun(n = 10)
 nb_by_group
 plot_nns_ratio(x = nb_by_group, alpha = 0.05, horizontal = F)
 ```
+
+#### Local A + Local GLoVe
 
 train local A
 
@@ -523,10 +558,11 @@ wv_main <- glovelocal$fit_transform(toks_fcm, n_iter = 30,
 
 wv_context <- glovelocal$components
 local_glove <- wv_main + t(wv_context) # word vectors
-saveRDS(local_glove, "localglove_nostops_italianparliament.rds")
+saveRDS(local_glove, "localglove.rds")
 ```
 
 ```{r}
+# token object around target words
 wm_toks <- tokens_context(x = toks_nostop, pattern = "*march*", window = 5L)
 wm_dfm <- dfm(wm_toks)
 # create document-embedding matrix using our locally trained GloVe embeddings and transformation matrix
@@ -541,6 +577,8 @@ wm_wv_local <- colMeans(wm_dem_local)
 find_nns(wm_wv_local, pre_trained = local_glove, 
          N = 10, candidates = wm_dem_local@features)
 ```
+
+
 
 ```{r}
 # token object around target words
@@ -562,6 +600,37 @@ target_nns <- get_nns(x = target_toks, N = 10,
   do.call(rbind, .) %>% 
   as.data.frame()
 target_nns[, 1:10]
+```
+
+```{r}
+# get cosine similarity ratios
+plotfun_new <- function(n){
+  temp <- tokens_subset(target_toks)
+  feats <- featnames(dfm(target_toks))
+  set.seed(111)
+  target_nns_ratio <- get_nns_ratio(x = temp,
+                                    N = n,
+                                    groups = docvars(temp, 'attitude'),
+                                    numerator = "supporter",
+                                    candidates = feats,
+                                    pre_trained = local_glove,
+                                    transform = TRUE,
+                                    transform_matrix = localA,
+                                    bootstrap = T,
+                                    num_bootstraps = 100,
+                                    permute = TRUE,
+                                    num_permutations = 100,
+                                    verbose = T)
+  
+  return(target_nns_ratio)
+}
+```
+
+```{r}
+# visualizing cosine similarity ratios
+nb_by_group <- plotfun_new(n = 10)
+nb_by_group
+plot_nns_ratio(x = nb_by_group, alpha = 0.05, horizontal = F)
 ```
 
 ### Word Scaling
